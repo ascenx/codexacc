@@ -3,6 +3,14 @@
   "version": "0.1.2",
   "description": "Manage multiple Codex CLI accounts",
   "license": "MIT",
+  "homepage": "https://github.com/ascenx/codexacc#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ascenx/codexacc.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ascenx/codexacc/issues"
+  },
   "type": "module",
   "bin": {
     "codexacc": "dist/bin.js"
