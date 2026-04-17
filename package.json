@@ -1,0 +1,30 @@
+{
+  "name": "@ascenx/codexacc",
+  "version": "0.1.0",
+  "description": "Manage multiple Codex CLI accounts",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "codexacc": "dist/bin.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "docs/usage.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
+    "build": "pnpm clean && tsc -p tsconfig.json && chmod +x dist/bin.js",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepublishOnly": "pnpm test && pnpm typecheck && pnpm build"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.8.0",
+    "vitest": "^3.0.0"
+  }
+}

@@ -1,0 +1,10 @@
+node_modules/
+.pnpm-store/
+dist/
+coverage/
+.env
+.env.*
+.DS_Store
+.codexacc/
+docs
+/docs/*
