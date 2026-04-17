@@ -1,10 +1,11 @@
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { createAccount, listAccounts, readAccount, readCurrentAccount, removeAccount, setCurrentAccount } from "./accounts.js";
+import { createAccount, listAccounts, readAccount, readCurrentAccount, removeAccount, setCurrentAccount, type AccountMetadata } from "./accounts.js";
 import { runCodexProcess, type ProcessResult, type RunCodexOptions } from "./codex.js";
-import { formatLimitTable, type LimitTableRow } from "./format.js";
+import { formatLimitChoice, formatLimitTable, type LimitTableRow } from "./format.js";
 import { findLatestLimitsForHome, findLatestLimitsInJsonl, type LimitSnapshot } from "./limits.js";
 import { getStoreRoot } from "./paths.js";
+import { selectAccount, type AccountSelectionChoice, type AccountSelectionCommand } from "./prompt.js";
 import { installShellHook, shellHook } from "./shell.js";
 
 export interface CliResult {
@@ -18,6 +19,7 @@ export type CliEnv = Record<string, string | undefined>;
 export interface CliDeps {
   runCodex?: (accountHome: string, args: string[], env: CliEnv, options?: RunCodexOptions) => Promise<ProcessResult>;
   onProgress?: (message: string) => void;
+  selectAccount?: (command: AccountSelectionCommand, choices: AccountSelectionChoice[]) => Promise<string | null>;
 }
 
 const HELP = `codexacc <command>
@@ -26,8 +28,8 @@ Commands:
   add <name>            Create an isolated Codex account home and run codex login
   remove <name>         Remove a managed account home
   rm <name>             Alias for remove
-  run <name> [args...]  Run codex with the selected account
-  use <name>            Set the default account for the shell hook
+  run [name] [args...]  Run codex with the selected account
+  use [name]            Set the default account for the shell hook
   current-home          Print the selected account CODEX_HOME for shell hooks
   shell-hook            Print shell integration code
   install-shell         Install shell integration into ~/.zshrc
@@ -68,9 +70,36 @@ function errorResult(message: string): CliResult {
   return { exitCode: 1, stdout: "", stderr: `${message}\n` };
 }
 
+async function resolveAccountName(
+  command: AccountSelectionCommand,
+  storeRoot: string,
+  providedName: string | undefined,
+  select: (command: AccountSelectionCommand, choices: AccountSelectionChoice[]) => Promise<string | null>,
+): Promise<string> {
+  if (providedName) return providedName;
+
+  const accounts = await listAccounts(storeRoot);
+  if (accounts.length === 0) throw new Error("No accounts found");
+
+  const choices = await buildAccountChoices(accounts);
+  const selected = await select(command, choices);
+  if (!selected) throw new Error("Account name is required");
+  return selected;
+}
+
+async function buildAccountChoices(accounts: AccountMetadata[]): Promise<AccountSelectionChoice[]> {
+  return Promise.all(
+    accounts.map(async (account) => ({
+      account,
+      ...formatLimitChoice(await findLatestLimitsForHome(account.home)),
+    })),
+  );
+}
+
 export async function runCli(args: string[], env: CliEnv, deps: CliDeps = {}): Promise<CliResult> {
   const runCodex = deps.runCodex ?? runCodexProcess;
   const onProgress = deps.onProgress;
+  const chooseAccount = deps.selectAccount ?? selectAccount;
   const command = args[0];
 
   if (!command || command === "--help" || command === "-h" || command === "help") {
@@ -114,7 +143,8 @@ export async function runCli(args: string[], env: CliEnv, deps: CliDeps = {}): P
   if (command === "use") {
     try {
       const storeRoot = getStoreRoot(env);
-      const account = await readAccount(storeRoot, args[1]);
+      const accountName = await resolveAccountName("use", storeRoot, args[1], chooseAccount);
+      const account = await readAccount(storeRoot, accountName);
       await setCurrentAccount(storeRoot, account);
       return { exitCode: 0, stdout: `Using account ${account.name}\n`, stderr: "" };
     } catch (error) {
@@ -147,7 +177,9 @@ export async function runCli(args: string[], env: CliEnv, deps: CliDeps = {}): P
 
   if (command === "run") {
     try {
-      const account = await readAccount(getStoreRoot(env), args[1]);
+      const storeRoot = getStoreRoot(env);
+      const accountName = await resolveAccountName("run", storeRoot, args[1], chooseAccount);
+      const account = await readAccount(storeRoot, accountName);
       const codexArgs = args.slice(2);
       return await runCodex(account.home, codexArgs, env, codexArgs.length === 0 ? { stdio: "inherit" } : undefined);
     } catch (error) {

@@ -13,7 +13,7 @@ describe("runCli", () => {
     expect(result.stdout).toContain("add <name>");
     expect(result.stdout).toContain("remove <name>");
     expect(result.stdout).toContain("rm <name>");
-    expect(result.stdout).toContain("run <name>");
+    expect(result.stdout).toContain("run [name]");
     expect(result.stdout).toContain("current-home");
     expect(result.stdout).toContain("shell-hook");
     expect(result.stdout).toContain("install-shell");
@@ -49,6 +49,37 @@ describe("account commands", () => {
       stdout: `${path.join(base, ".codexacc", "accounts", "work", "home")}\n`,
       stderr: "",
     });
+  });
+
+  it("prompts for an account when use has no account name", async () => {
+    const base = await mkdtemp(path.join(tmpdir(), "codexacc-"));
+    const env = { HOME: base };
+    const prompts: Array<{ command: string; names: string[]; fiveHour: string[]; weekly: string[] }> = [];
+
+    await runCli(["add", "personal"], env, { runCodex: async () => ({ exitCode: 0, stdout: "", stderr: "" }) });
+    await runCli(["add", "work"], env, { runCodex: async () => ({ exitCode: 0, stdout: "", stderr: "" }) });
+    const sessionDir = path.join(base, ".codexacc", "accounts", "personal", "home", "sessions", "2026", "04", "17");
+    await mkdir(sessionDir, { recursive: true });
+    await writeFile(
+      path.join(sessionDir, "limits.jsonl"),
+      '{"timestamp":"2026-04-17T01:05:00.000Z","type":"event_msg","payload":{"rate_limits":{"primary":{"used_percent":75,"window_minutes":300,"resets_at":1776362700},"secondary":{"used_percent":42,"window_minutes":10080,"resets_at":1776967500},"plan_type":"plus"}}}\n',
+    );
+    const result = await runCli(["use"], env, {
+      selectAccount: async (command, choices) => {
+        prompts.push({
+          command,
+          names: choices.map((choice) => choice.account.name),
+          fiveHour: choices.map((choice) => choice.fiveHour),
+          weekly: choices.map((choice) => choice.weekly),
+        });
+        return "work";
+      },
+    });
+    const currentHomeResult = await runCli(["current-home"], env);
+
+    expect(result).toEqual({ exitCode: 0, stdout: "Using account work\n", stderr: "" });
+    expect(currentHomeResult.stdout).toBe(`${path.join(base, ".codexacc", "accounts", "work", "home")}\n`);
+    expect(prompts).toEqual([{ command: "use", names: ["personal", "work"], fiveHour: ["25%", "unknown"], weekly: ["58%", "unknown"] }]);
   });
 
   it("lists accounts with mocked login status", async () => {
@@ -189,6 +220,30 @@ describe("account commands", () => {
       },
     ]);
   });
+
+  it("prompts for an account when run has no account name", async () => {
+    const base = await mkdtemp(path.join(tmpdir(), "codexacc-"));
+    const env = { HOME: base };
+    const calls: Array<{ home: string; args: string[]; stdio?: string }> = [];
+
+    await runCli(["add", "work"], env, { runCodex: async () => ({ exitCode: 0, stdout: "", stderr: "" }) });
+    const result = await runCli(["run"], env, {
+      selectAccount: async () => "work",
+      runCodex: async (home, args, _env, options) => {
+        calls.push({ home, args, stdio: options?.stdio });
+        return { exitCode: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    expect(result).toEqual({ exitCode: 0, stdout: "", stderr: "" });
+    expect(calls).toEqual([
+      {
+        home: path.join(base, ".codexacc", "accounts", "work", "home"),
+        args: [],
+        stdio: "inherit",
+      },
+    ]);
+  });
 });
 
 describe("limits command", () => {
@@ -200,10 +255,11 @@ describe("limits command", () => {
     const result = await runCli(["limits"], env);
 
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain("account  5h");
-    expect(result.stdout).toContain("weekly");
-    expect(result.stdout).toContain("PLAN");
-    expect(result.stdout).toContain("work     unknown  unknown  unknown");
+    expect(result.stdout).toContain("╭");
+    expect(result.stdout).toContain("codexacc limits");
+    expect(result.stdout).toContain("Account:             work");
+    expect(result.stdout).toContain("5h limit:            unknown");
+    expect(result.stdout).toContain("Weekly limit:        unknown");
   });
 
   it("refreshes accounts before printing limits", async () => {
@@ -226,8 +282,8 @@ describe("limits command", () => {
     expect(result.exitCode).toBe(0);
     expect(result.stderr).toBe("");
     expect(result.stdout).toContain("work");
-    expect(result.stdout).toContain("96%,");
-    expect(result.stdout).toContain("88%,");
+    expect(result.stdout).toContain("96% left");
+    expect(result.stdout).toContain("88% left");
     expect(result.stdout).toContain("Plus");
     expect(calls).toHaveLength(1);
     expect(calls[0]?.args.slice(0, 3)).toEqual(["exec", "--skip-git-repo-check", "-o"]);
@@ -252,7 +308,9 @@ describe("limits command", () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("Refresh did not produce limit data for work");
-    expect(result.stdout).toContain("work     unknown  unknown  unknown");
+    expect(result.stdout).toContain("Account:             work");
+    expect(result.stdout).toContain("5h limit:            unknown");
+    expect(result.stdout).toContain("Weekly limit:        unknown");
   });
 
   it("reports refresh progress", async () => {
@@ -296,6 +354,19 @@ describe("user-facing errors", () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("Account not found: missing");
+  });
+
+  it("fails use without account when selection is unavailable", async () => {
+    const base = await mkdtemp(path.join(tmpdir(), "codexacc-"));
+    const env = { HOME: base };
+
+    await runCli(["add", "work"], env, { runCodex: async () => ({ exitCode: 0, stdout: "", stderr: "" }) });
+    const result = await runCli(["use"], env, {
+      selectAccount: async () => null,
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("Account name is required");
   });
 
   it("rejects invalid add names", async () => {

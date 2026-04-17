@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { formatLimitTable } from "../src/format.js";
+import { formatLimitChoice, formatLimitTable } from "../src/format.js";
 import { findLatestLimitsForHome } from "../src/limits.js";
 
 describe("limits", () => {
@@ -32,7 +32,7 @@ describe("limits", () => {
     await expect(findLatestLimitsForHome(base)).resolves.toBeNull();
   });
 
-  it("formats limits as a compact local-time table", () => {
+  it("formats limits as status-style cards", () => {
     const output = formatLimitTable(
       [
         {
@@ -47,13 +47,18 @@ describe("limits", () => {
           },
         },
       ],
-      { timeZone: "Asia/Shanghai" },
+      { timeZone: "Asia/Shanghai", now: new Date("2026-04-17T01:00:00.000Z") },
     );
 
     expect(output).toBe(
       [
-        "account  5h                weekly            PLAN",
-        "work     96%, 04-17 02:05  88%, 04-24 02:05  Plus",
+        "╭─────────────────────────────────────────────────────────────────────────────────╮",
+        "│   >_ codexacc limits                                                            │",
+        "│                                                                                 │",
+        "│   Account:             work (Plus)                                              │",
+        "│   5h limit:            [███████████████████░] 96% left (resets 02:05)           │",
+        "│   Weekly limit:        [██████████████████░░] 88% left (resets 02:05 on 24 Apr) │",
+        "╰─────────────────────────────────────────────────────────────────────────────────╯",
         "",
       ].join("\n"),
     );
@@ -67,7 +72,18 @@ describe("limits", () => {
       },
     ]);
 
-    expect(output).toBe(["account  5h       weekly   PLAN", "work     unknown  unknown  unknown", ""].join("\n"));
+    expect(output).toBe(
+      [
+        "╭────────────────────────────────╮",
+        "│   >_ codexacc limits           │",
+        "│                                │",
+        "│   Account:             work    │",
+        "│   5h limit:            unknown │",
+        "│   Weekly limit:        unknown │",
+        "╰────────────────────────────────╯",
+        "",
+      ].join("\n"),
+    );
   });
 
   it("formats used_percent as remaining percent", () => {
@@ -85,7 +101,29 @@ describe("limits", () => {
       },
     ]);
 
-    expect(output).toContain("25%,");
-    expect(output).toContain("58%,");
+    expect(output).toContain("25% left");
+    expect(output).toContain("58% left");
+  });
+
+  it("formats compact limit values for account selection", () => {
+    const summary = formatLimitChoice({
+      timestamp: "2026-04-17T01:05:00.000Z",
+      rateLimits: {
+        primary: { used_percent: 75, window_minutes: 300, resets_at: 1776362700 },
+        secondary: { used_percent: 42, window_minutes: 10080, resets_at: 1776967500 },
+        plan_type: "plus",
+      },
+    });
+
+    expect(summary).toEqual({
+      fiveHour: "25%",
+      weekly: "58%",
+      plan: "Plus",
+    });
+    expect(formatLimitChoice(null)).toEqual({
+      fiveHour: "unknown",
+      weekly: "unknown",
+      plan: "unknown",
+    });
   });
 });

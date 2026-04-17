@@ -36,6 +36,15 @@ codexacc run work
 codexacc run work exec "fix tests"
 ```
 
+If you omit the account name, `codexacc` prompts you to choose one:
+
+```bash
+codexacc run
+# Select account for codexacc run:
+#   1) personal  5h 25%      weekly 58%      Plus
+#   2) work      5h unknown  weekly unknown
+```
+
 Install the shell hook once, then switch the default account:
 
 ```bash
@@ -45,14 +54,18 @@ codexacc use work
 codex
 ```
 
+You can also run `codexacc use` and choose from the saved account list with cached 5h and weekly limits.
+
 ## Commands
 
 ```bash
 codexacc add work
 codexacc remove work
 codexacc run work
+codexacc run
 codexacc run work exec "fix tests"
 codexacc use work
+codexacc use
 codexacc current-home
 codexacc install-shell
 codexacc list
