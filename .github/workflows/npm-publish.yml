@@ -1,0 +1,78 @@
+name: Publish npm package
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: npm-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Test
+        run: pnpm test
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Build
+        run: pnpm build
+
+      - name: Read package metadata
+        id: package
+        run: |
+          node --input-type=module <<'NODE' >> "$GITHUB_OUTPUT"
+          import fs from "node:fs";
+
+          const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+          console.log(`name=${pkg.name}`);
+          console.log(`version=${pkg.version}`);
+          NODE
+
+      - name: Check whether this version is already published
+        id: published
+        run: |
+          package_name="${{ steps.package.outputs.name }}"
+          package_version="${{ steps.package.outputs.version }}"
+
+          if npm view "${package_name}@${package_version}" version >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "${package_name}@${package_version} is already published; skipping publish."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "${package_name}@${package_version} has not been published yet."
+          fi
+
+      - name: Publish to npm
+        if: steps.published.outputs.exists == 'false'
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
