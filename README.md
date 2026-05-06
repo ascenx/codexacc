@@ -29,6 +29,8 @@ codexacc add personal
 codexacc add work
 ```
 
+`codexacc add <name>` prompts you to choose either ChatGPT login or third-party API key setup. ChatGPT login runs the normal `codex login` flow. Third-party API key setup asks for a server URL and API key, then writes the provider config into that account's `config.toml`.
+
 Run Codex with a specific account:
 
 ```bash
@@ -84,6 +86,23 @@ Accounts live under:
 ```
 
 Each account home can contain Codex auth files such as `auth.json`. Treat the account directory like a secret.
+
+Third-party API key accounts store their provider settings in:
+
+```text
+~/.codexacc/accounts/<name>/home/config.toml
+```
+
+The generated config looks like:
+
+```toml
+[model_providers.<name>]
+name = "<name>"
+base_url = "<server url>"
+wire_api = "openai"
+requires_openai_auth = false
+env_key = "<api key>"
+```
 
 ## Limits
 

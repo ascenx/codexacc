@@ -4,6 +4,7 @@ import type { AccountMetadata } from "./accounts.js";
 import type { LimitChoiceSummary } from "./format.js";
 
 export type AccountSelectionCommand = "use" | "run";
+export type AddSetupMethod = "chatgpt" | "api-key";
 
 export interface AccountSelectionChoice extends LimitChoiceSummary {
   account: AccountMetadata;
@@ -30,6 +31,36 @@ export async function selectAccount(command: AccountSelectionCommand, choices: A
     const selected = Number(answer);
     if (!Number.isInteger(selected) || selected < 1 || selected > choices.length) return null;
     return choices[selected - 1]?.account.name ?? null;
+  } finally {
+    readline.close();
+  }
+}
+
+export async function selectAddSetupMethod(): Promise<AddSetupMethod | null> {
+  if (!stdin.isTTY || !stdout.isTTY) return "chatgpt";
+
+  stdout.write("Select setup method for codexacc add:\n");
+  stdout.write("  1) ChatGPT login\n");
+  stdout.write("  2) Third-party API key\n");
+
+  const readline = createInterface({ input: stdin, output: stdout });
+  try {
+    const answer = (await readline.question("Choose 1 or 2: ")).trim();
+    if (answer === "1") return "chatgpt";
+    if (answer === "2") return "api-key";
+    return null;
+  } finally {
+    readline.close();
+  }
+}
+
+export async function promptText(label: string): Promise<string | null> {
+  if (!stdin.isTTY || !stdout.isTTY) return null;
+
+  const readline = createInterface({ input: stdin, output: stdout });
+  try {
+    const answer = await readline.question(`${label}: `);
+    return answer.trim();
   } finally {
     readline.close();
   }

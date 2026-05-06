@@ -1,11 +1,12 @@
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createAccount, listAccounts, readAccount, readCurrentAccount, removeAccount, setCurrentAccount, type AccountMetadata } from "./accounts.js";
+import { writeProviderConfig } from "./config.js";
 import { runCodexProcess, type ProcessResult, type RunCodexOptions } from "./codex.js";
 import { formatLimitChoice, formatLimitTable, type LimitTableRow } from "./format.js";
 import { findLatestLimitsForHome, findLatestLimitsInJsonl, type LimitSnapshot } from "./limits.js";
 import { getStoreRoot } from "./paths.js";
-import { selectAccount, type AccountSelectionChoice, type AccountSelectionCommand } from "./prompt.js";
+import { promptText, selectAccount, selectAddSetupMethod, type AccountSelectionChoice, type AccountSelectionCommand, type AddSetupMethod } from "./prompt.js";
 import { installShellHook, shellHook } from "./shell.js";
 
 export interface CliResult {
@@ -20,12 +21,14 @@ export interface CliDeps {
   runCodex?: (accountHome: string, args: string[], env: CliEnv, options?: RunCodexOptions) => Promise<ProcessResult>;
   onProgress?: (message: string) => void;
   selectAccount?: (command: AccountSelectionCommand, choices: AccountSelectionChoice[]) => Promise<string | null>;
+  selectAddSetupMethod?: () => Promise<AddSetupMethod | null>;
+  promptText?: (label: string) => Promise<string | null>;
 }
 
 const HELP = `codexacc <command>
 
 Commands:
-  add <name>            Create an isolated Codex account home and run codex login
+  add <name>            Create an account home; choose ChatGPT login or third-party API key setup
   remove <name>         Remove a managed account home
   rm <name>             Alias for remove
   run [name] [args...]  Run codex with the selected account
@@ -70,6 +73,16 @@ function errorResult(message: string): CliResult {
   return { exitCode: 1, stdout: "", stderr: `${message}\n` };
 }
 
+function setupErrorResult(accountName: string, error: unknown): CliResult {
+  const message = error instanceof Error ? error.message : String(error);
+  return { exitCode: 1, stdout: "", stderr: `${message}\nRemoved incomplete account ${accountName}\n` };
+}
+
+function requiredInput(value: string | null, label: string): string {
+  if (!value) throw new Error(`${label} is required`);
+  return value;
+}
+
 async function resolveAccountName(
   command: AccountSelectionCommand,
   storeRoot: string,
@@ -100,6 +113,8 @@ export async function runCli(args: string[], env: CliEnv, deps: CliDeps = {}): P
   const runCodex = deps.runCodex ?? runCodexProcess;
   const onProgress = deps.onProgress;
   const chooseAccount = deps.selectAccount ?? selectAccount;
+  const chooseAddSetupMethod = deps.selectAddSetupMethod ?? selectAddSetupMethod;
+  const askText = deps.promptText ?? promptText;
   const command = args[0];
 
   if (!command || command === "--help" || command === "-h" || command === "help") {
@@ -111,20 +126,40 @@ export async function runCli(args: string[], env: CliEnv, deps: CliDeps = {}): P
     try {
       const storeRoot = getStoreRoot(env);
       const account = await createAccount(storeRoot, name);
-      const login = await runCodex(account.home, ["login"], env);
-      if (login.exitCode !== 0) {
-        await removeAccount(storeRoot, account.name);
+
+      try {
+        const setupMethod = await chooseAddSetupMethod();
+        if (!setupMethod) throw new Error("Setup method is required");
+
+        if (setupMethod === "chatgpt") {
+          const login = await runCodex(account.home, ["login"], env);
+          if (login.exitCode !== 0) {
+            await removeAccount(storeRoot, account.name);
+            return {
+              exitCode: login.exitCode,
+              stdout: login.stdout,
+              stderr: `${login.stderr}Removed incomplete account ${account.name}\n`,
+            };
+          }
+          return {
+            exitCode: login.exitCode,
+            stdout: `Created account ${account.name} at ${account.home}\n${login.stdout}`,
+            stderr: login.stderr,
+          };
+        }
+
+        const baseUrl = requiredInput(await askText("Server URL"), "Server URL");
+        const apiKey = requiredInput(await askText("API key"), "API key");
+        await writeProviderConfig(account.home, { name: account.name, baseUrl, apiKey });
         return {
-          exitCode: login.exitCode,
-          stdout: login.stdout,
-          stderr: `${login.stderr}Removed incomplete account ${account.name}\n`,
+          exitCode: 0,
+          stdout: `Created account ${account.name} at ${account.home}\nConfigured third-party API provider ${account.name}\n`,
+          stderr: "",
         };
+      } catch (error) {
+        await removeAccount(storeRoot, account.name);
+        return setupErrorResult(account.name, error);
       }
-      return {
-        exitCode: login.exitCode,
-        stdout: `Created account ${account.name} at ${account.home}\n${login.stdout}`,
-        stderr: login.stderr,
-      };
     } catch (error) {
       return errorResult(error instanceof Error ? error.message : String(error));
     }

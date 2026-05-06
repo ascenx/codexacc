@@ -11,6 +11,7 @@ describe("runCli", () => {
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("codexacc <command>");
     expect(result.stdout).toContain("add <name>");
+    expect(result.stdout).toContain("choose ChatGPT login or third-party API key setup");
     expect(result.stdout).toContain("remove <name>");
     expect(result.stdout).toContain("rm <name>");
     expect(result.stdout).toContain("run [name]");
@@ -135,6 +136,88 @@ describe("account commands", () => {
     expect(addResult.exitCode).toBe(1);
     expect(addResult.stderr).toContain("login failed");
     expect(addResult.stderr).toContain("Removed incomplete account work");
+    expect(listResult.stdout).toBe("No accounts found\n");
+  });
+
+  it("writes config.toml for third-party API key accounts", async () => {
+    const base = await mkdtemp(path.join(tmpdir(), "codexacc-"));
+    const env = { HOME: base };
+    const calls: Array<{ home: string; args: string[] }> = [];
+
+    const result = await runCli(["add", "openrouter"], env, {
+      selectAddSetupMethod: async () => "api-key",
+      promptText: async (label) => {
+        if (label === "Server URL") return "https://openrouter.ai/api/v1";
+        if (label === "API key") return "sk-test";
+        throw new Error(`Unexpected prompt: ${label}`);
+      },
+      runCodex: async (home, args) => {
+        calls.push({ home, args });
+        return { exitCode: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    const config = await readFile(path.join(base, ".codexacc", "accounts", "openrouter", "home", "config.toml"), "utf8");
+
+    expect(result).toEqual({
+      exitCode: 0,
+      stdout: `Created account openrouter at ${path.join(base, ".codexacc", "accounts", "openrouter", "home")}\nConfigured third-party API provider openrouter\n`,
+      stderr: "",
+    });
+    expect(calls).toEqual([]);
+    expect(config).toBe(`[model_providers.openrouter]
+name = "openrouter"
+base_url = "https://openrouter.ai/api/v1"
+wire_api = "openai"
+requires_openai_auth = false
+env_key = "sk-test"
+`);
+  });
+
+  it("keeps ChatGPT login as an add setup method", async () => {
+    const base = await mkdtemp(path.join(tmpdir(), "codexacc-"));
+    const env = { HOME: base };
+    const calls: Array<{ home: string; args: string[] }> = [];
+    let prompted = false;
+
+    const result = await runCli(["add", "work"], env, {
+      selectAddSetupMethod: async () => {
+        prompted = true;
+        return "chatgpt";
+      },
+      runCodex: async (home, args) => {
+        calls.push({ home, args });
+        return { exitCode: 0, stdout: "Logged in\n", stderr: "" };
+      },
+    });
+
+    expect(prompted).toBe(true);
+    expect(calls).toEqual([
+      {
+        home: path.join(base, ".codexacc", "accounts", "work", "home"),
+        args: ["login"],
+      },
+    ]);
+    expect(result).toEqual({
+      exitCode: 0,
+      stdout: `Created account work at ${path.join(base, ".codexacc", "accounts", "work", "home")}\nLogged in\n`,
+      stderr: "",
+    });
+  });
+
+  it("removes incomplete API key accounts when required input is empty", async () => {
+    const base = await mkdtemp(path.join(tmpdir(), "codexacc-"));
+    const env = { HOME: base };
+
+    const addResult = await runCli(["add", "api"], env, {
+      selectAddSetupMethod: async () => "api-key",
+      promptText: async (label) => (label === "Server URL" ? "" : "sk-test"),
+    });
+    const listResult = await runCli(["list"], env);
+
+    expect(addResult.exitCode).toBe(1);
+    expect(addResult.stderr).toContain("Server URL is required");
+    expect(addResult.stderr).toContain("Removed incomplete account api");
     expect(listResult.stdout).toBe("No accounts found\n");
   });
 
