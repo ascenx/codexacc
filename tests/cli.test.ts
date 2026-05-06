@@ -165,13 +165,17 @@ describe("account commands", () => {
       stderr: "",
     });
     expect(calls).toEqual([]);
-    expect(config).toBe(`[model_providers.openrouter]
+    expect(config).toBe(`model_provider = "openrouter"
+
+[model_providers.openrouter]
 name = "openrouter"
 base_url = "https://openrouter.ai/api/v1"
 wire_api = "responses"
 requires_openai_auth = false
-env_key = "sk-test"
+env_key = "CODEXACC_OPENROUTER_API_KEY"
 `);
+    const secrets = await readFile(path.join(base, ".codexacc", "accounts", "openrouter", "home", "codexacc-secrets.json"), "utf8");
+    expect(JSON.parse(secrets)).toEqual({ apiKeys: { CODEXACC_OPENROUTER_API_KEY: "sk-test" } });
   });
 
   it("keeps ChatGPT login as an add setup method", async () => {
@@ -279,6 +283,64 @@ env_key = "sk-test"
       },
     ]);
     expect(result).toEqual({ exitCode: 7, stdout: "out\n", stderr: "err\n" });
+  });
+
+  it("injects third-party provider API keys when running codex", async () => {
+    const base = await mkdtemp(path.join(tmpdir(), "codexacc-"));
+    const env = { HOME: base };
+    const calls: Array<{ home: string; args: string[]; env: Record<string, string | undefined> }> = [];
+
+    await runCli(["add", "openrouter"], env, {
+      selectAddSetupMethod: async () => "api-key",
+      promptText: async (label) => {
+        if (label === "Server URL") return "https://openrouter.ai/api/v1";
+        if (label === "API key") return "sk-test";
+        throw new Error(`Unexpected prompt: ${label}`);
+      },
+    });
+    const result = await runCli(["run", "openrouter", "exec", "hello"], env, {
+      runCodex: async (home, args, runEnv) => {
+        calls.push({ home, args, env: runEnv });
+        return { exitCode: 0, stdout: "ok\n", stderr: "" };
+      },
+    });
+
+    expect(result).toEqual({ exitCode: 0, stdout: "ok\n", stderr: "" });
+    expect(calls).toEqual([
+      {
+        home: path.join(base, ".codexacc", "accounts", "openrouter", "home"),
+        args: ["-c", 'model_provider="openrouter"', "exec", "hello"],
+        env: { HOME: base, CODEXACC_OPENROUTER_API_KEY: "sk-test" },
+      },
+    ]);
+  });
+
+  it("runs legacy API key configs that stored the key directly in env_key", async () => {
+    const base = await mkdtemp(path.join(tmpdir(), "codexacc-"));
+    const env = { HOME: base };
+    const calls: Array<{ args: string[]; env: Record<string, string | undefined> }> = [];
+
+    await runCli(["add", "legacy"], env, { runCodex: async () => ({ exitCode: 0, stdout: "", stderr: "" }) });
+    await writeFile(
+      path.join(base, ".codexacc", "accounts", "legacy", "home", "config.toml"),
+      `[model_providers.legacy]
+name = "legacy"
+base_url = "https://legacy.example/v1"
+wire_api = "responses"
+requires_openai_auth = false
+env_key = "sk-legacy"
+`,
+    );
+
+    const result = await runCli(["run", "legacy"], env, {
+      runCodex: async (_home, args, runEnv) => {
+        calls.push({ args, env: runEnv });
+        return { exitCode: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    expect(result).toEqual({ exitCode: 0, stdout: "", stderr: "" });
+    expect(calls).toEqual([{ args: ["-c", 'model_provider="legacy"'], env: { HOME: base, "sk-legacy": "sk-legacy" } }]);
   });
 
   it("runs interactive codex with inherited stdio", async () => {

@@ -93,15 +93,19 @@ Third-party API key accounts store their provider settings in:
 ~/.codexacc/accounts/<name>/home/config.toml
 ```
 
+The API key is stored in `~/.codexacc/accounts/<name>/home/codexacc-secrets.json`. `codexacc run` reads that file and injects the environment variable named by `env_key` before starting Codex.
+
 The generated config looks like:
 
 ```toml
+model_provider = "<name>"
+
 [model_providers.<name>]
 name = "<name>"
 base_url = "<server url>"
 wire_api = "responses"
 requires_openai_auth = false
-env_key = "<api key>"
+env_key = "CODEXACC_<NAME>_API_KEY"
 ```
 
 ## Limits

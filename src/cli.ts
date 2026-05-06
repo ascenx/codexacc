@@ -1,7 +1,7 @@
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createAccount, listAccounts, readAccount, readCurrentAccount, removeAccount, setCurrentAccount, type AccountMetadata } from "./accounts.js";
-import { writeProviderConfig } from "./config.js";
+import { readProviderRuntimeConfig, writeProviderConfig, type ProviderRuntimeConfig } from "./config.js";
 import { runCodexProcess, type ProcessResult, type RunCodexOptions } from "./codex.js";
 import { formatLimitChoice, formatLimitTable, type LimitTableRow } from "./format.js";
 import { findLatestLimitsForHome, findLatestLimitsInJsonl, type LimitSnapshot } from "./limits.js";
@@ -81,6 +81,14 @@ function setupErrorResult(accountName: string, error: unknown): CliResult {
 function requiredInput(value: string | null, label: string): string {
   if (!value) throw new Error(`${label} is required`);
   return value;
+}
+
+function providerConfigArgs(provider: ProviderRuntimeConfig | null): string[] {
+  return provider ? ["-c", `model_provider=${JSON.stringify(provider.providerName)}`] : [];
+}
+
+function providerEnv(env: CliEnv, provider: ProviderRuntimeConfig | null): CliEnv {
+  return provider ? { ...env, ...provider.env } : env;
 }
 
 async function resolveAccountName(
@@ -215,8 +223,10 @@ export async function runCli(args: string[], env: CliEnv, deps: CliDeps = {}): P
       const storeRoot = getStoreRoot(env);
       const accountName = await resolveAccountName("run", storeRoot, args[1], chooseAccount);
       const account = await readAccount(storeRoot, accountName);
-      const codexArgs = args.slice(2);
-      return await runCodex(account.home, codexArgs, env, codexArgs.length === 0 ? { stdio: "inherit" } : undefined);
+      const runtimeConfig = await readProviderRuntimeConfig(account.home);
+      const userCodexArgs = args.slice(2);
+      const codexArgs = [...providerConfigArgs(runtimeConfig), ...userCodexArgs];
+      return await runCodex(account.home, codexArgs, providerEnv(env, runtimeConfig), userCodexArgs.length === 0 ? { stdio: "inherit" } : undefined);
     } catch (error) {
       return errorResult(error instanceof Error ? error.message : String(error));
     }
@@ -251,6 +261,7 @@ export async function runCli(args: string[], env: CliEnv, deps: CliDeps = {}): P
     for (const account of accounts) {
       let refreshSnapshot: LimitSnapshot | null = null;
       if (refresh) {
+        const runtimeConfig = await readProviderRuntimeConfig(account.home);
         onProgress?.(`Refreshing ${account.name}...\n`);
         const refreshStartedAt = new Date().toISOString();
         const outputPath = path.join(tmpdir(), `codexacc-limit-${account.name}-${process.pid}-${Date.now()}.txt`);
@@ -259,8 +270,8 @@ export async function runCli(args: string[], env: CliEnv, deps: CliDeps = {}): P
           result = await withTimeout(
             runCodex(
               account.home,
-              ["exec", "--skip-git-repo-check", "-o", outputPath, LIMIT_REFRESH_PROMPT],
-              env,
+              [...providerConfigArgs(runtimeConfig), "exec", "--skip-git-repo-check", "-o", outputPath, LIMIT_REFRESH_PROMPT],
+              providerEnv(env, runtimeConfig),
               { timeoutMs: refreshTimeoutMs },
             ),
             refreshTimeoutMs,
