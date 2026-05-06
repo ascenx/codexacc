@@ -32,6 +32,7 @@ Commands:
   remove <name>         Remove a managed account home
   rm <name>             Alias for remove
   run [name] [args...]  Run codex with the selected account
+  run-current [args...] Run codex with the default account selected by use
   use [name]            Set the default account for the shell hook
   current-home          Print the selected account CODEX_HOME for shell hooks
   shell-hook            Print shell integration code
@@ -89,6 +90,17 @@ function providerConfigArgs(provider: ProviderRuntimeConfig | null): string[] {
 
 function providerEnv(env: CliEnv, provider: ProviderRuntimeConfig | null): CliEnv {
   return provider ? { ...env, ...provider.env } : env;
+}
+
+async function runAccount(
+  runCodex: (accountHome: string, args: string[], env: CliEnv, options?: RunCodexOptions) => Promise<ProcessResult>,
+  account: AccountMetadata,
+  userCodexArgs: string[],
+  env: CliEnv,
+): Promise<CliResult> {
+  const runtimeConfig = await readProviderRuntimeConfig(account.home);
+  const codexArgs = [...providerConfigArgs(runtimeConfig), ...userCodexArgs];
+  return await runCodex(account.home, codexArgs, providerEnv(env, runtimeConfig), userCodexArgs.length === 0 ? { stdio: "inherit" } : undefined);
 }
 
 async function resolveAccountName(
@@ -223,10 +235,19 @@ export async function runCli(args: string[], env: CliEnv, deps: CliDeps = {}): P
       const storeRoot = getStoreRoot(env);
       const accountName = await resolveAccountName("run", storeRoot, args[1], chooseAccount);
       const account = await readAccount(storeRoot, accountName);
-      const runtimeConfig = await readProviderRuntimeConfig(account.home);
-      const userCodexArgs = args.slice(2);
-      const codexArgs = [...providerConfigArgs(runtimeConfig), ...userCodexArgs];
-      return await runCodex(account.home, codexArgs, providerEnv(env, runtimeConfig), userCodexArgs.length === 0 ? { stdio: "inherit" } : undefined);
+      return await runAccount(runCodex, account, args.slice(2), env);
+    } catch (error) {
+      return errorResult(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  if (command === "run-current") {
+    try {
+      const storeRoot = getStoreRoot(env);
+      const current = await readCurrentAccount(storeRoot);
+      if (!current) return errorResult("No current account selected");
+      const account = await readAccount(storeRoot, current.name);
+      return await runAccount(runCodex, account, args.slice(1), env);
     } catch (error) {
       return errorResult(error instanceof Error ? error.message : String(error));
     }
@@ -240,10 +261,16 @@ export async function runCli(args: string[], env: CliEnv, deps: CliDeps = {}): P
 
     const lines = ["NAME\tACTIVE\tLOGIN\tHOME"];
     for (const account of accounts) {
-      const status = await runCodex(account.home, ["login", "status"], env);
+      const runtimeConfig = await readProviderRuntimeConfig(account.home);
       const active = env.CODEX_HOME === account.home || current?.home === account.home ? "*" : "";
-      const login = status.exitCode === 0 ? `${status.stdout}${status.stderr}`.trim() : "Not logged in";
-      lines.push(`${account.name}\t${active}\t${login}\t${account.home}`);
+      if (runtimeConfig) {
+        lines.push(`${account.name}\t${active}\tAPI key provider (${runtimeConfig.providerName})\t${account.home}`);
+        continue;
+      }
+
+      const status = await runCodex(account.home, ["login", "status"], env);
+      const loginStatus = status.exitCode === 0 ? `${status.stdout}${status.stderr}`.trim() : "Not logged in";
+      lines.push(`${account.name}\t${active}\t${loginStatus}\t${account.home}`);
     }
     return { exitCode: 0, stdout: `${lines.join("\n")}\n`, stderr: "" };
   }

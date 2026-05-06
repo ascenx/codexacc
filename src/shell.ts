@@ -12,7 +12,7 @@ codex() {
   local _codexacc_home
   _codexacc_home="$(command codexacc current-home 2>/dev/null)"
   if [ -n "$_codexacc_home" ]; then
-    CODEX_HOME="$_codexacc_home" command codex "$@"
+    command codexacc run-current "$@"
   else
     command codex "$@"
   fi

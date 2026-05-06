@@ -56,6 +56,8 @@ codexacc use work
 codex
 ```
 
+The shell hook runs `codex` through the selected account, including third-party API key accounts created by `codexacc add`.
+
 You can also run `codexacc use` and choose from the saved account list with cached 5h and weekly limits.
 
 ## Commands
@@ -66,6 +68,7 @@ codexacc remove work
 codexacc run work
 codexacc run
 codexacc run work exec "fix tests"
+codexacc run-current exec "fix tests"
 codexacc use work
 codexacc use
 codexacc current-home
@@ -93,7 +96,7 @@ Third-party API key accounts store their provider settings in:
 ~/.codexacc/accounts/<name>/home/config.toml
 ```
 
-The API key is stored in `~/.codexacc/accounts/<name>/home/codexacc-secrets.json`. `codexacc run` reads that file and injects the environment variable named by `env_key` before starting Codex.
+The API key is stored in `~/.codexacc/accounts/<name>/home/codexacc-secrets.json`. `codexacc run` and the shell hook read that file and inject the environment variable named by `env_key` before starting Codex.
 
 The generated config looks like:
 

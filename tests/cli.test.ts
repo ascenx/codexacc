@@ -124,6 +124,34 @@ describe("account commands", () => {
     expect(result.stdout).toContain("Logged in using ChatGPT");
   });
 
+  it("lists API key provider accounts without showing not logged in", async () => {
+    const base = await mkdtemp(path.join(tmpdir(), "codexacc-"));
+    const env = { HOME: base };
+    const calls: string[][] = [];
+
+    await runCli(["add", "codeforce"], env, {
+      selectAddSetupMethod: async () => "api-key",
+      promptText: async (label) => {
+        if (label === "Server URL") return "https://codeapi.codetech.pro/v1";
+        if (label === "API key") return "sk-test";
+        throw new Error(`Unexpected prompt: ${label}`);
+      },
+    });
+
+    const result = await runCli(["list"], env, {
+      runCodex: async (_home, args) => {
+        calls.push(args);
+        return { exitCode: 1, stdout: "", stderr: "Not logged in\n" };
+      },
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("codeforce");
+    expect(result.stdout).toContain("API key provider");
+    expect(result.stdout).not.toContain("Not logged in");
+    expect(calls).toEqual([]);
+  });
+
   it("does not keep an account when add login fails", async () => {
     const base = await mkdtemp(path.join(tmpdir(), "codexacc-"));
     const env = { HOME: base };
@@ -238,14 +266,15 @@ env_key = "CODEXACC_OPENROUTER_API_KEY"
     expect(useResult.stderr).toContain("Account not found: work");
   });
 
-  it("prints a shell hook that wraps codex", async () => {
+  it("prints a shell hook that runs the current account through codexacc", async () => {
     const result = await runCli(["shell-hook"], { HOME: "/tmp/codexacc-test" });
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("codex()");
     expect(result.stdout).toContain("unalias codex");
     expect(result.stdout).toContain("command codexacc current-home");
-    expect(result.stdout).toContain("CODEX_HOME=");
+    expect(result.stdout).toContain('command codexacc run-current "$@"');
+    expect(result.stdout).toContain('command codex "$@"');
     expect(result.stderr).toBe("");
   });
 
@@ -299,6 +328,37 @@ env_key = "CODEXACC_OPENROUTER_API_KEY"
       },
     });
     const result = await runCli(["run", "openrouter", "exec", "hello"], env, {
+      runCodex: async (home, args, runEnv) => {
+        calls.push({ home, args, env: runEnv });
+        return { exitCode: 0, stdout: "ok\n", stderr: "" };
+      },
+    });
+
+    expect(result).toEqual({ exitCode: 0, stdout: "ok\n", stderr: "" });
+    expect(calls).toEqual([
+      {
+        home: path.join(base, ".codexacc", "accounts", "openrouter", "home"),
+        args: ["-c", 'model_provider="openrouter"', "exec", "hello"],
+        env: { HOME: base, CODEXACC_OPENROUTER_API_KEY: "sk-test" },
+      },
+    ]);
+  });
+
+  it("injects third-party provider API keys when running the current account", async () => {
+    const base = await mkdtemp(path.join(tmpdir(), "codexacc-"));
+    const env = { HOME: base };
+    const calls: Array<{ home: string; args: string[]; env: Record<string, string | undefined> }> = [];
+
+    await runCli(["add", "openrouter"], env, {
+      selectAddSetupMethod: async () => "api-key",
+      promptText: async (label) => {
+        if (label === "Server URL") return "https://openrouter.ai/api/v1";
+        if (label === "API key") return "sk-test";
+        throw new Error(`Unexpected prompt: ${label}`);
+      },
+    });
+    await runCli(["use", "openrouter"], env);
+    const result = await runCli(["run-current", "exec", "hello"], env, {
       runCodex: async (home, args, runEnv) => {
         calls.push({ home, args, env: runEnv });
         return { exitCode: 0, stdout: "ok\n", stderr: "" };
