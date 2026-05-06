@@ -168,7 +168,7 @@ describe("account commands", () => {
     expect(config).toBe(`[model_providers.openrouter]
 name = "openrouter"
 base_url = "https://openrouter.ai/api/v1"
-wire_api = "openai"
+wire_api = "responses"
 requires_openai_auth = false
 env_key = "sk-test"
 `);

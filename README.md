@@ -99,7 +99,7 @@ The generated config looks like:
 [model_providers.<name>]
 name = "<name>"
 base_url = "<server url>"
-wire_api = "openai"
+wire_api = "responses"
 requires_openai_auth = false
 env_key = "<api key>"
 ```

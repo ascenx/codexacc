@@ -6,7 +6,7 @@ describe("providerConfigToml", () => {
     expect(providerConfigToml({ name: "open.router", baseUrl: "https://example.com/v1", apiKey: "sk-test" })).toBe(`[model_providers."open.router"]
 name = "open.router"
 base_url = "https://example.com/v1"
-wire_api = "openai"
+wire_api = "responses"
 requires_openai_auth = false
 env_key = "sk-test"
 `);

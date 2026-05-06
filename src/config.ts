@@ -20,7 +20,7 @@ export function providerConfigToml(config: ThirdPartyProviderConfig): string {
   return `[model_providers.${tomlKey(config.name)}]
 name = ${tomlString(config.name)}
 base_url = ${tomlString(config.baseUrl)}
-wire_api = "openai"
+wire_api = "responses"
 requires_openai_auth = false
 env_key = ${tomlString(config.apiKey)}
 `;
